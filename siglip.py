@@ -32,7 +32,9 @@ class SiglipVisionConfig:
         self.num_image_tokens = num_image_tokens
         
 
+
 class SiglipVisionEmbeddings(nn.Module):
+    # prende l'immagine, la diviode in patch, la flattenizza e ci aggiunge i positional encoding
     def __init__(self, config: SiglipVisionConfig):
         super().__init__()
         self.config = config
@@ -66,8 +68,63 @@ class SiglipVisionEmbeddings(nn.Module):
         embeddings = patch_embeds.flatten(2) # flatten delle patch dopo la convoluzione per ottnere le patch
         embeddings = embeddings.transpose(1, 2) # [batch_size, embed_dim, num_patches], si traspone, perchè voglio un batch di sequenze di embeddings
         embeddings = embeddings + self.position_embeddings(self.position_ids)  # aggiungo il positional encoding alle patch
+       
         return embeddings       
         
         
 
+class SiglipVisionEncoder(nn.Module):
+    # è la parte che calcola i contextualized embeddings. Sarebbe quindi l'encoder
+    def __init__(self, config: SiglipVisionConfig):
+        super().__init__()
+        self.embed_dim = config.hidden_size
+        self.self_attn = SiflipAttention(config)        # modulo di self attention
+        self.layer_norm1 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
+        self.mlp = SiglipMLP(config)                     # modulo multi-layer perceptron
+        self.layer_norm2 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
         
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        residual = hidden_states     # parte per la skip connection
+        hidden_states = self.layer_norm1(hidden_states)  # normalizzazione delle dimensioni batch_size, nmber_of_patches, embed_dim
+        hidden_states, _ = self.self_attn(hidden_states)  # calcolo della self attention
+        hidden_states = residual + hidden_states          # skip connection
+        residual = hidden_states
+        hidden_states = self.layer_norm2(hidden_states)  # normalizzazione num 2
+        hidden_states = self.mlp(hidden_states)          # calcolo del multi-layer perceptron: layer lineari che trasforma ciascun embedding indipendentemente dagli altri
+        hidden_states = residual + hidden_states          # skip connection num 2
+        
+        return hidden_states
+        
+        
+class SiglipVisionTransformer(nn.Module):
+    
+    def __init__(self, config: SiglipVisionConfig):
+        super().__init__()
+        self.config = config
+        embed_dim = config.hidden_size      
+        self.embeddings = SiglipVisionEmbeddings(config)                # modulo che divide l'immagine in patch 
+        self.encoder = SiglipVisionEncoder(config)                      # modulo che implementa i layer del ViT   
+        self.post_layernorm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)  # addestramento più stabile
+        
+    def forward(self, pixel_values) -> Tuple:
+        # pixel_values: [batch_size, channels, height, width] -> [batch_size, num_patches, embed_dim]
+        hideen_state = self.embeddings(pixel_values)    # estrazione delle patch (con la convoluzione e flatten)
+        last_hidden_state = self.encoder(hideen_state)
+        # last_hidden_state = encoder_outputs[0]
+        last_hidden_state = self.post_layernorm(last_hidden_state)
+        
+        return last_hidden_state
+        
+        
+        
+class SiglipVisionModel(nn.Module):
+    
+    def __init__(self, config: SiglipVisionConfig):
+        super().__init__()
+        self.config = config
+        self.vision_model = SiglipVisionTransformer(config)
+        
+    def forward(self, pixel_values) -> Tuple:
+        # funzione che passa le immagini attraverso il ViT e restituisce i relativi embeddings
+        # [batch_size, channels, height, width] -> [batch_size, num_patches, embed_dim]
+        return self.vision_model(pixel_values=pixel_values)
