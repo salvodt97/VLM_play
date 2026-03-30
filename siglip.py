@@ -14,7 +14,7 @@ class SiglipVisionConfig:
         image_size=224,
         patch_size=16,
         layer_norm_eps=1e-6,
-        attention_dropout_prob=0.0,
+        attention_dropout=0.0,
         num_image_tokens : int = None,  # numero di embeddings per immagine
         **kwargs    
     ):
@@ -28,7 +28,7 @@ class SiglipVisionConfig:
         self.image_size = image_size
         self.patch_size = patch_size
         self.layer_norm_eps = layer_norm_eps
-        self.attention_dropout_prob = attention_dropout_prob
+        self.attention_dropout = attention_dropout
         self.num_image_tokens = num_image_tokens
         
 
@@ -72,6 +72,61 @@ class SiglipVisionEmbeddings(nn.Module):
         return embeddings       
         
         
+        
+class SiglipAttention(nn.Module):
+    # Multi-head attention all'interno di ogni blocco del ViT
+    def __init__(self, config: SiglipVisionConfig):
+        super().__init__()
+        self.config = config
+        self.embed_dim = config.hidden_size
+        self.num_heads = config.num_attention_heads
+        self.head_dim = self.embed_dim // self.num_heads
+        self.scale = self.head_dim ** -0.5
+        self.dropout = config.attention_dropout
+        
+        # le seguenti sono le matrici di pesi per chiavi, query e valori
+        self.k_prj = nn.Linear(self.embed_dim, self.embed_dim)  # proiezione per le chiavi
+        self.q_prj = nn.Linear(self.embed_dim, self.embed_dim)  # proiezione per le query
+        self.v_prj = nn.Linear(self.embed_dim, self.embed_dim)  # proiezione per i valori
+        self.out_proj = nn.Linear(self.embed_dim, self.embed_dim) 
+        
+    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        # prende l'input del layer di normalization
+        # hidden_states: [batch_size, num_patches, embed_dim]
+        batch_size, seq_len, _ = hidden_states.size()
+        # matrici di parametri che trasformano la sequenza degli input
+        # non c'è nessuna contestualizzazione qui
+        quesry_states = self.q_prj(hidden_states)  # [batch_size, num_patches, embed_dim]
+        key_states = self.k_prj(hidden_states)     # [batch_size, num_patches, embed_dim]
+        value_states = self.v_prj(hidden_states)   # [batch_size, num_patches, embed_dim]
+        # Faccio uno split, cioè sarebbe la multihead attention, e la trasposizione
+        quesry_states = quesry_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        key_states = key_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        value_states = value_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        # attention con la formula Q K^T / sqrt(d_k)
+        attention_weights = torch.matmul(quesry_states, key_states.transpose(2, 3)) * self.scale  # [batch_size, num_heads, num_patches, num_patches]
+        
+        if attention_weights.size() != (batch_size, self.num_heads, seq_len, seq_len):
+            raise ValueError(f"Attention weights should be of shape {(batch_size, self.num_heads, seq_len, seq_len)}, but got {attention_weights.size()}")
+        
+        attention_weights = torch.nn.functional.softmax(attention_weights, dim=-1, dtype=torch.float32).to(quesry_states.dtype)  # normalizzazione con softmax
+        attention_weights = torch.nn.functional.dropout(attention_weights, p=self.dropout, training=self.training)  # dropout per regolarizzazione, che qui in realtà non c'è
+        attention_output = torch.matmul(attention_weights, value_states)  # [batch_size, num_heads, num_patches, head_dim]
+        
+        if attention_output.size() != (batch_size, self.num_heads, seq_len, self.head_dim):
+            raise ValueError(f"Attention output should be of shape {(batch_size, self.num_heads, seq_len, self.head_dim)}, but got {attention_output.size()}")
+        # Traspongo all'indietro
+        # [batch_size, num_heads, num_patches, head_dim] -> [batsh_size, num_patches, num_heads, head_dim]
+        attention_output = attention_output.transpose(1, 2).contigous()
+        attention_output = attention_output.reshape(batch_size, seq_len, self.embed_dim)  # [batch_size, num_patches, embed_dim]
+        
+        attention_output = self.out_proj(attention_output)  # proiezione finale per ottenere l'output della self attention
+        
+        return attention_output, attention_weights
+        
+
+    
+    
 class SiglipMLP(nn.Module):
     # feed-forward network all'interno di ogni blocco del ViT, composta da due layer lineari
     def __init__(self, config: SiglipVisionConfig):
