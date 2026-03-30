@@ -72,13 +72,30 @@ class SiglipVisionEmbeddings(nn.Module):
         return embeddings       
         
         
+class SiglipMLP(nn.Module):
+    # feed-forward network all'interno di ogni blocco del ViT, composta da due layer lineari
+    def __init__(self, config: SiglipVisionConfig):
+        super().__init__()
+        self.config = config
+        self.fc1 = nn.Linear(config.hidden_size, config.intermediate_size)
+        self.fc2 = nn.Linear(config.intermediate_size, config.hidden_size)
+        
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # coverte embedded dimensions nelle hidden size, espandendo quindi
+        hidden_states = self.fc1(hidden_states)  # prima trasformazione lineare
+        hidden_states = nn.functional.gelu(hidden_states, approximate="tanh") # funzione non lineare, scelta mediante euristiche
+        hidden_states = self.fc2(hidden_states)  # seconda trasformazione lineare, che riporta alla dimensione originale
+        
+        return hidden_states
+
+
 
 class SiglipVisionEncoder(nn.Module):
     # è la parte che calcola i contextualized embeddings. Sarebbe quindi l'encoder
     def __init__(self, config: SiglipVisionConfig):
         super().__init__()
         self.embed_dim = config.hidden_size
-        self.self_attn = SiflipAttention(config)        # modulo di self attention
+        self.self_attn = SiglipAttention(config)        # modulo di self attention
         self.layer_norm1 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
         self.mlp = SiglipMLP(config)                     # modulo multi-layer perceptron
         self.layer_norm2 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
