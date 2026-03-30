@@ -145,7 +145,7 @@ class SiglipMLP(nn.Module):
 
 
 
-class SiglipVisionEncoder(nn.Module):
+class SiglipSingleEncoderLayer(nn.Module):
     # è la parte che calcola i contextualized embeddings. Sarebbe quindi l'encoder
     def __init__(self, config: SiglipVisionConfig):
         super().__init__()
@@ -164,6 +164,20 @@ class SiglipVisionEncoder(nn.Module):
         hidden_states = self.layer_norm2(hidden_states)  # normalizzazione num 2
         hidden_states = self.mlp(hidden_states)          # calcolo del multi-layer perceptron: layer lineari che trasforma ciascun embedding indipendentemente dagli altri
         hidden_states = residual + hidden_states          # skip connection num 2
+        
+        return hidden_states
+    
+class SiglipVisionEncoder(nn.Module):
+    # è composta da più SiglipSingleEncoderLayer, che sono i layer del ViT
+    def __init__(self, config: SiglipVisionConfig):
+        super().__init__()
+        self.config = config
+        self.layers = nn.ModuleList([SiglipSingleEncoderLayer(config) for _ in range(config.num_hidden_layers)])
+        
+    def forward(self, inputs_embeds: torch.Tensor) -> torch.Tensor:
+        hidden_states = inputs_embeds
+        for layer in self.layers:
+            hidden_states = layer(hidden_states)
         
         return hidden_states
         
