@@ -1,5 +1,6 @@
 from msilib import sequence
 from re import S
+from turtle import position
 
 from numpy import pad
 import torch
@@ -145,8 +146,15 @@ class PaliGemmaForConditionalGeneration(nn.Module):
                 kv_len = kv_cache.num_items() + q_len
             # Aggiungo la head dimension
             casual_mask = casual_mask.unsqueeze(1)
-        
             
+            if kv_cache is not None and kv_cache.num_items() > 0:
+                position_ids = attention_mask.cumsum(-1)[:, -1]
+                if position_ids.dim() == 1:
+                    position_ids = position_ids.unsqueeze(0)
+            else:
+                 position_ids = (attention_mask.cumsum(-1)).masked_fill_((attention_mask == 0), 1).to(device)
+                 
+            return final_embedding, casual_mask, position_ids
         
         
         
