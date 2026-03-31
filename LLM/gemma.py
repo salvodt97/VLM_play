@@ -128,9 +128,25 @@ class PaliGemmaForConditionalGeneration(nn.Module):
             final_embedding = final_embedding.masked_scatter(image_mask_expanded, scaled_image_features)
             final_embedding = torch.where(pad_mask_expanded, torch.zeros_like(final_embedding), final_embedding) # metto 0 perchè non ho padding
             
-
+            #### GESTIONE KVCACHE ####
+            dtype, device, inputs_embeds.dtype, inputs_embeds.device
+            min_dtype = torch.finfo(dtype).min
+            q_len = inputs_embeds.shape[1]
+            
+            if kv_cache is None or kv_cache.num_items() == 0:
+                # fase di prefill, non maschero nessun token
+                # non aggiungo nessun valore di - inf (per dove voglio attention sore = 0) perchè, stando al paper di paligemma
+                # si vogliono tenere tutti i token del prompt, essendo che descrivono il task
+                # ho la casualità, quindi, solo nella generazione dei token, non nel prefill della kvcache
+                casual_mask = torch.full((batch_size, q_len, q_len), fill_value=0, device=device)
+            else:
+                # qui genero tokens, quindi query (matrice Q) contiene una sola riga
+                assert q_len == 1
+                kv_len = kv_cache.num_items() + q_len
+            # Aggiungo la head dimension
+            casual_mask = casual_mask.unsqueeze(1)
         
-        
+            
         
         
         
