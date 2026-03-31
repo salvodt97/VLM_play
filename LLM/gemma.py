@@ -1,5 +1,6 @@
 from msilib import sequence
 from re import S
+from tkinter import HIDDEN
 from turtle import position
 
 from numpy import pad
@@ -79,6 +80,59 @@ class PaliGemmaConfig:
         
         self.text_config.num_image_tokens = (self.vision_config.image_size // self.vision_config.patch_size) ** 2
         self.vision_config.projection_dim = projection_dim
+
+
+
+class GemmaLLM(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.model = GemmaModel(config)
+        self.vocab_size = config.vocab_size
+        
+        
+    def get_input_embeddings(self):
+        return self.model.embed_tokens
+    
+    
+    def tie_weights(self):
+        self.lm_head.weight = self.model.embed_tokens.weight
+
+
+    def forard(
+        self,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        kv_cache: Optional[KVCache] = None,
+    ) -> Tuple:
+        outputs = self.model(
+            attention_mask = attention_mask,
+            position_ids = position_ids,
+            inputs_embeds = inputs_embeds,
+            kv_cache = kv_cache,
+        )
+        
+        hidden_states = outputs
+        logits = self.lm_head(hidden_states)
+        logits = logits.float()
+        
+        return_data = {"logits": logits}
+        
+        if kv_cache is not None:
+            return_data["kv_cache"] = kv_cache
+
+        return return_data
+
+
+class PaliGemmaMultiModalProjector(nn.Module):
+    def __init__(self, config: PaliGemmaConfig):
+        super().__init__()
+        self.linear = nn.Linear(config.vision_config.hidden_size, config.vision_config.projection_dim, bias = True)
+        
+    def forward(self, image_features) -> torch.Tensor:
+        projected_image_features = self.linear(image_features)
+        return projected_image_features
     
 
 
