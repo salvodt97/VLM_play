@@ -102,6 +102,25 @@ class GemmaRMSNorm(nn.Module):
         return output.type_as(x)
     
     
+
+class GemmaMLP(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.hidden_size = config.hidden_size
+        self.intermediate_size = config.intermediate_size
+        # layer usato dalla funzione di attivazione di Gemma
+        self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias = False)
+        # layer che espande l'embedding
+        self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias = False)
+        # layer che ritorna alla dimensione iniziale
+        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias = False)
+        
+        
+    def forward(self, x):
+        
+        return self.down_proj(nn.functional.gelu(self.gate_proj(x), approximate="tanh") * self.up_proj(x))
+    
     
 class GemmaDecoderLayer(nn.Module):
     def __init__(self, config: GemmaConfig, layer_idx: int):
@@ -135,6 +154,8 @@ class GemmaDecoderLayer(nn.Module):
             hidden_states = residual + hidden_states
             
             return hidden_states
+        
+        
         
 class GemmaModel(nn.Module):
     def __init__(self, config: GemmaConfig):
