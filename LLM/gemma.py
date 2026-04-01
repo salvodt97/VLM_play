@@ -80,7 +80,27 @@ class PaliGemmaConfig:
         
         self.text_config.num_image_tokens = (self.vision_config.image_size // self.vision_config.patch_size) ** 2
         self.vision_config.projection_dim = projection_dim
+     
+     
+     
+class GemmaRMSNorm(nn.Module):
+    def __init__(self, dim: int, eps = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+    
+    
+    def _norm(self, x):
+        # Aggiungo eps per evitare divisione per 0 (o quasi 0)
+        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
         
+        
+    def forward(self, x):
+        output = self._norm(x)
+        output = output * (1 + self.weight.float())
+        
+        return output.type_as(x)
+
         
 
 class GemmaModel(nn.Module):
