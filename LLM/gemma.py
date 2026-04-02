@@ -4,7 +4,7 @@ from re import S
 from tkinter import HIDDEN
 from turtle import position
 
-from numpy import dtype, pad
+from numpy import dtype, int64, pad
 import torch
 from torch import device, nn
 from torch.nn import CrossEntropyLoss
@@ -156,9 +156,61 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
     # si riduce la dimensione aggiuntiva, moltiplicando
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
+
+
+
+class GemmaRotatoryEmbedding(nn.Module):
+    def __init__(self, dim, max_position_embeddings=2048, base=10000, device = None):
+        super().__init__()
+        self.dim = dim   # head dimension (si modifica la head attention, ohni head ha la sua positional encoding)
+        self.max_position_embeddings = max_position_embeddings # numero massimo di posizioni da codificare
+        self.base = base # per il calcolo dell'angolo theta
+        # calcolo proprio l'angolo, preso dal paper originale
+        inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, dtype = torch.int64).float() / self.dim))
+        self.register_buffer("inv_freq", tensor=inv_freq, persistent=False)
+    
+    
+    @torch.no_grad
+    def forward(self, x, position_ids, seq_len=None):
+        # funzione per il calcolo degli embedding col positional encoding
+        # x: [batch_size, num_attention_heads, seq_len, head_size]
+        self.inv_freq.to(x.device)
+        # inv_freq_expanded: [Batch_Size, Head_Dim // 2, 1]
+        inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, -1)
+        # position_ids_expanded: [Batch_Size, 1, Seq_Len]
+        position_ids_expanded = position_ids[:, None, :].float()
+        device_type = x.device.type
+        device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
+        with torch.autocast(device_type=device_type, enabled=False):
+            # si disabilita la mixed precision
+            # freqs: [Batch_Size, Head_Dim // 2, 1] @ [Batch_Size, 1, Seq_Len] --> [Batch_Size, Seq_Len, Head_Dim // 2]
+            freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
+            # facendo così in realtà non uso angoli diversi per ogni embedding, bensì ripeto degli angoli
+            emb = torch.cat((freqs, freqs), dime=-1)
+            cos = emb.cos()
+            sin = emb.sin()
+            
+        return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
     
     
     
+def rotate_half(x):
+    # Build the [-x2, x1, -x4, x3, ...] tensor for the sin part of the positional encoding.
+    x1 = x[..., : x.shape[-1] // 2] # Takes the first half of the last dimension
+    x2 = x[..., x.shape[-1] // 2 :] # Takes the second half of the last dimension
+    return torch.cat((-x2, x1), dim=-1)
+
+
+def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
+    cos = cos.unsqueeze(unsqueeze_dim) # Add the head dimension
+    sin = sin.unsqueeze(unsqueeze_dim) # Add the head dimension
+    # Apply the formula of the Rotary Positional Encoding paper.
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed
+            
+     
+
 class GemmaAttention(nn.Module):
     def __init__(self, config: GemmaConfig, layer_idx: Optional[int] = None):
         super().__init__()
