@@ -122,6 +122,35 @@ class GemmaMLP(nn.Module):
         return self.down_proj(nn.functional.gelu(self.gate_proj(x), approximate="tanh") * self.up_proj(x))
     
     
+    
+class GemmaAttention(nn.Module):
+    def __init__(self, config: GemmaConfig, layer_idx: Optional[int] = None):
+        super().__init__()
+        self.config = config
+        self.layer_idx = layer_idx  # serve per sapere quale kvcache usare, perchè pgni layer ha la sua kvcache
+        
+        self.attention_dropout = config.attention_dropout
+        self.hidden_size = config.hidden_size
+        self.num_heads = config.num_attention_heads
+        self.head_dim = config.head_dim
+        self.num_key_value_heads = config.num_key_value_heads
+        self.num_key_value_groups = self.num_heads // self.num_key_value_heads
+        self.max_position_embeddings = config.max_position_embeddings
+        self.rope_theta = config.rope_theta
+        self.is_casual = True
+        
+        assert self.hidden_size % self.num_heads == 0
+        # diverso da siglip, il numero di head per le query è maggiore del numero di head per K e V
+        # Es: number of heads = 8, hidden_size = 1024, head_dim = 1024/8 = 128
+        # Wq = [1024, 8 * 128] = [1024, 1024]
+        self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias = config.attention_bias)
+        # Wk = [1024, 1 * 128] = [1024, 1024]
+        self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias = config.attention_bias)
+        # Wv = [1024, 1 * 128] = [1024, 1024]
+        self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias = config.attention_bias)
+        self.o_proj = nn.Linear(self.num_heads * self.head_dim, self.hidden_size, bias = config.attention_bias)
+    
+
 class GemmaDecoderLayer(nn.Module):
     def __init__(self, config: GemmaConfig, layer_idx: int):
         super().__init__()
