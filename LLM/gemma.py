@@ -148,6 +148,16 @@ class GemmaMLP(nn.Module):
         return self.down_proj(nn.functional.gelu(self.gate_proj(x), approximate="tanh") * self.up_proj(x))
     
     
+def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
+    batch, num_key_value_heads, slen, head_dim = hidden_states.shape
+    if n_rep == 1:
+        return hidden_states
+    # si ripete quello che viene dopo le prima dimensioni un numero di volte pari a n_rep
+    hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+    # si riduce la dimensione aggiuntiva, moltiplicando
+    return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
+    
+    
     
 class GemmaAttention(nn.Module):
     def __init__(self, config: GemmaConfig, layer_idx: Optional[int] = None):
@@ -204,6 +214,31 @@ class GemmaAttention(nn.Module):
             
             if kv_cache is not None:
                 key_states, value_states = kv_cache.update(key_states, value_states, self.layer_idx)
+            
+            # metodo che ripete le head mancanti di k e v per avere lo stesso numero delle Q.
+            # è come se non facessi la Grouped Query Attention (GQA), ma serve ad evitare l'implementazione di un CUDA Core custom
+            key_states = repeat_kv(key_states, self.num_key_value_groups)
+            value_states = repeat_kv(value_states, self.num_key_value_groups)
+            
+            attn_weghts = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+            assert attention_mask is not None
+            attn_weghts = attn_weghts + attention_mask
+            attn_weghts = nn.functional.softmax(attn_weghts, dim = -1, dtype=torch.float32).to(query_states.dtype)
+            attn_weghts = nn.functional.dropout(attn_weghts, p=self.attention_dropout, training=self.training)
+            attn_output = torch.matmul(attn_weghts, value_states)
+            
+            if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
+                raise ValueError(
+                    f"attn_output should be of zise { (bsz, self.num_heads, q_len, self.head_dim)}, not {attn_output.size()}"
+                )
+            
+            # transpongo all'indietro come nel caso di siglip
+            attn_output = attn_output.transpose(1,2).contiguous()
+            # concateno le head
+            attn_output = attn_output.view(bsz, q_len, -1)
+            attn_output = self.o_proj(attn_output)
+            
+            return attn_output, attn_weghts
     
 
 class GemmaDecoderLayer(nn.Module):
