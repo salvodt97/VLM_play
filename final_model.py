@@ -58,7 +58,8 @@ class PaliGemmaForConditionalGeneration(nn.Module):
     def __init__(self, config: PaliGemmaConfig):
         super().__init__()
         self.config = config
-        self.vision_model = SiglipVisionModel(config.vision_config)
+        # Il checkpoint Hugging Face usa il prefisso "vision_tower".
+        self.vision_tower = SiglipVisionModel(config.vision_config)
         self.multi_modal_projector = PaliGemmaMultiModalProjector(config)
         self.vocab_size = config.vocab_size
         
@@ -143,7 +144,7 @@ class PaliGemmaForConditionalGeneration(nn.Module):
         inputs_embeds = self.language_model.get_input_embeddings()(input_ids)
         # da i contextualized embedding delle patch delle immagini
         # [batch_size, channels, height, width] -> [batch_size, num_patches, embed_dim]
-        selected_image_features = self.vision_model(pixel_values.to(inputs_embeds.dtype))
+        selected_image_features = self.vision_tower(pixel_values.to(inputs_embeds.dtype))
         # resize embedding delle immagini nella dimensione dei embedding dei token
         # [batch_size, num_patches, embed_dim] -> [batch_size, num_patches, hidden_size (text_embed_dim)]
         image_features = self.multi_modal_projector(selected_image_features)

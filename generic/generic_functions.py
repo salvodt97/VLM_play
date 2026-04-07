@@ -26,7 +26,15 @@ def load_hf_model(model_path: str, device: str) -> Tuple[PaliGemmaForConditional
 
     # crea il modello con quella configurazione
     model = PaliGemmaForConditionalGeneration(config).to(device)
-    model.load_state_dict(tensors, strict=False)
+    load_result = model.load_state_dict(tensors, strict=False)
+    # if load_result.missing_keys or load_result.unexpected_keys:
+    #     print("WARNING: state_dict mismatch while loading the checkpoint.")
+    #     print(f"Missing keys: {len(load_result.missing_keys)}")
+    #     if load_result.missing_keys:
+    #         print("First missing keys:", load_result.missing_keys[:10])
+    #     print(f"Unexpected keys: {len(load_result.unexpected_keys)}")
+    #     if load_result.unexpected_keys:
+    #         print("First unexpected keys:", load_result.unexpected_keys[:10])
     # copia i pesi
     model.tie_weights()
 

@@ -27,9 +27,10 @@ class ImageProcessor:
         self.image_seq_lenght = num_image_tokens
         self.image_size = image_size
         
-        # Gemma Tokenizer
-        tokens_to_add = {"additional_special_tokens": [self.IMAGE_TOKEN]}
-        tokenizer.add_special_tokens(tokens_to_add)
+        # Il checkpoint PaliGemma include gia' <image>; lo aggiungiamo solo se manca.
+        if tokenizer.convert_tokens_to_ids(self.IMAGE_TOKEN) == tokenizer.unk_token_id:
+            tokens_to_add = {"additional_special_tokens": [self.IMAGE_TOKEN]}
+            tokenizer.add_special_tokens(tokens_to_add)
         ############# EXTRA SATNDARD TOKENS NOT USEFUL ######################
         EXTRA_TOKENS = [f"<loc{i:04d}>" for i in range(1024)]   # Tokens for object detection (bounding boxes) 
         EXTRA_TOKENS += [f"<seg{i:03d}>" for i in range(128)]   # Tokens for object segmentation

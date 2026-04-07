@@ -52,7 +52,8 @@ class SiglipVisionEmbeddings(nn.Module):
         
         self.num_patches = (self.image_size // self.patch_size) ** 2 # patch quadrata
         self.num_positions = self.num_patches   # sarebbe il numero di positional encoding, ovviamente uno per patch
-        self.position_embeddings = nn.Embedding(self.num_positions, self.embed_dim)  # il position embencoding è un vettore appreso
+        # Il checkpoint usa il nome "position_embedding" al singolare.
+        self.position_embedding = nn.Embedding(self.num_positions, self.embed_dim)  # il position embencoding è un vettore appreso
         self.register_buffer(
             # si salvano gli id delle posizioni nel SiglipVisionEmbeddings
             "position_ids", 
@@ -66,7 +67,7 @@ class SiglipVisionEmbeddings(nn.Module):
         patch_embeds = self.patch_embedding(pixel_values)  # converte l'immagine in embeddings patch per patch
         embeddings = patch_embeds.flatten(2) # flatten delle patch dopo la convoluzione per ottnere le patch
         embeddings = embeddings.transpose(1, 2) # [batch_size, embed_dim, num_patches], si traspone, perchè voglio un batch di sequenze di embeddings
-        embeddings = embeddings + self.position_embeddings(self.position_ids)  # aggiungo il positional encoding alle patch
+        embeddings = embeddings + self.position_embedding(self.position_ids)  # aggiungo il positional encoding alle patch
        
         return embeddings       
         
@@ -84,9 +85,10 @@ class SiglipAttention(nn.Module):
         self.dropout = config.attention_dropout
         
         # le seguenti sono le matrici di pesi per chiavi, query e valori
-        self.k_prj = nn.Linear(self.embed_dim, self.embed_dim)  # proiezione per le chiavi
-        self.q_prj = nn.Linear(self.embed_dim, self.embed_dim)  # proiezione per le query
-        self.v_prj = nn.Linear(self.embed_dim, self.embed_dim)  # proiezione per i valori
+        # I nomi dei layer devono matchare quelli del checkpoint Hugging Face.
+        self.k_proj = nn.Linear(self.embed_dim, self.embed_dim)  # proiezione per le chiavi
+        self.q_proj = nn.Linear(self.embed_dim, self.embed_dim)  # proiezione per le query
+        self.v_proj = nn.Linear(self.embed_dim, self.embed_dim)  # proiezione per i valori
         self.out_proj = nn.Linear(self.embed_dim, self.embed_dim) 
         
     def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
@@ -95,9 +97,9 @@ class SiglipAttention(nn.Module):
         batch_size, seq_len, _ = hidden_states.size()
         # matrici di parametri che trasformano la sequenza degli input
         # non c'è nessuna contestualizzazione qui
-        quesry_states = self.q_prj(hidden_states)  # [batch_size, num_patches, embed_dim]
-        key_states = self.k_prj(hidden_states)     # [batch_size, num_patches, embed_dim]
-        value_states = self.v_prj(hidden_states)   # [batch_size, num_patches, embed_dim]
+        quesry_states = self.q_proj(hidden_states)  # [batch_size, num_patches, embed_dim]
+        key_states = self.k_proj(hidden_states)     # [batch_size, num_patches, embed_dim]
+        value_states = self.v_proj(hidden_states)   # [batch_size, num_patches, embed_dim]
         # Faccio uno split, cioè sarebbe la multihead attention, e la trasposizione
         quesry_states = quesry_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         key_states = key_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
