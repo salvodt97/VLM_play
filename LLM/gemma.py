@@ -19,7 +19,7 @@ class GemmaConfig:
         head_dim = 256,
         max_position_embeddings = 8192, 
         rms_norm_eps = 1e-6,            # è per la normalizzazione rms
-        rope_theta = 100000.0,          # base frequency per la rotatory positional encoding
+        rope_theta = 10000.0,          # base frequency per la rotatory positional encoding
         attention_bias = False,         # se usare o meno i bias nelle matrizi per Q, K e V
         attention_dropout = 0.0,
         pad_token_id = None,
@@ -118,7 +118,7 @@ class GemmaRotatoryEmbedding(nn.Module):
             # freqs: [Batch_Size, Head_Dim // 2, 1] @ [Batch_Size, 1, Seq_Len] --> [Batch_Size, Seq_Len, Head_Dim // 2]
             freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
             # facendo così in realtà non uso angoli diversi per ogni embedding, bensì ripeto degli angoli
-            emb = torch.cat((freqs, freqs), dime=-1)
+            emb = torch.cat((freqs, freqs), dim=-1)
             cos = emb.cos()
             sin = emb.sin()
             
@@ -177,53 +177,53 @@ class GemmaAttention(nn.Module):
         )
         
         
-        def forward(
-            self,
-            hidden_states: torch.Tensor,
-            attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
-            kv_cache: Optional[KVCache] = None,
-            **kwargs,
-        ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-            bsz, q_len = hidden_states.size()
-            query_states = self.q_proj(hidden_states)
-            key_states = self.q_proj(hidden_states)
-            value_states = self.q_proj(hidden_states)
-            query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-            key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-            value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-            # si aggiunge qualche info per query e key che codifica la loro posizione
-            cos, sin = self.rotary_emb(value_states, position_ids, seq_len = None)
-            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-            
-            if kv_cache is not None:
-                key_states, value_states = kv_cache.update(key_states, value_states, self.layer_idx)
-            
-            # metodo che ripete le head mancanti di k e v per avere lo stesso numero delle Q.
-            # è come se non facessi la Grouped Query Attention (GQA), ma serve ad evitare l'implementazione di un CUDA Core custom
-            key_states = repeat_kv(key_states, self.num_key_value_groups)
-            value_states = repeat_kv(value_states, self.num_key_value_groups)
-            
-            attn_weghts = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
-            assert attention_mask is not None
-            attn_weghts = attn_weghts + attention_mask
-            attn_weghts = nn.functional.softmax(attn_weghts, dim = -1, dtype=torch.float32).to(query_states.dtype)
-            attn_weghts = nn.functional.dropout(attn_weghts, p=self.attention_dropout, training=self.training)
-            attn_output = torch.matmul(attn_weghts, value_states)
-            
-            if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
-                raise ValueError(
-                    f"attn_output should be of zise { (bsz, self.num_heads, q_len, self.head_dim)}, not {attn_output.size()}"
-                )
-            
-            # transpongo all'indietro come nel caso di siglip
-            attn_output = attn_output.transpose(1,2).contiguous()
-            # concateno le head
-            attn_output = attn_output.view(bsz, q_len, -1)
-            attn_output = self.o_proj(attn_output)
-            
-            return attn_output, attn_weghts
-    
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        kv_cache: Optional[KVCache] = None,
+        **kwargs,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        bsz, q_len, _ = hidden_states.size()
+        query_states = self.q_proj(hidden_states)
+        key_states = self.k_proj(hidden_states)
+        value_states = self.v_proj(hidden_states)
+        query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        # si aggiunge qualche info per query e key che codifica la loro posizione
+        cos, sin = self.rotary_emb(value_states, position_ids, seq_len = None)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+        
+        if kv_cache is not None:
+            key_states, value_states = kv_cache.update(key_states, value_states, self.layer_idx)
+        
+        # metodo che ripete le head mancanti di k e v per avere lo stesso numero delle Q.
+        # è come se non facessi la Grouped Query Attention (GQA), ma serve ad evitare l'implementazione di un CUDA Core custom
+        key_states = repeat_kv(key_states, self.num_key_value_groups)
+        value_states = repeat_kv(value_states, self.num_key_value_groups)
+        
+        attn_weghts = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+        assert attention_mask is not None
+        attn_weghts = attn_weghts + attention_mask
+        attn_weghts = nn.functional.softmax(attn_weghts, dim = -1, dtype=torch.float32).to(query_states.dtype)
+        attn_weghts = nn.functional.dropout(attn_weghts, p=self.attention_dropout, training=self.training)
+        attn_output = torch.matmul(attn_weghts, value_states)
+        
+        if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
+            raise ValueError(
+                f"attn_output should be of zise { (bsz, self.num_heads, q_len, self.head_dim)}, not {attn_output.size()}"
+            )
+        
+        # transpongo all'indietro come nel caso di siglip
+        attn_output = attn_output.transpose(1,2).contiguous()
+        # concateno le head
+        attn_output = attn_output.view(bsz, q_len, -1)
+        attn_output = self.o_proj(attn_output)
+        
+        return attn_output, attn_weghts
+
 
 class GemmaDecoderLayer(nn.Module):
     def __init__(self, config: GemmaConfig, layer_idx: int):
@@ -235,28 +235,28 @@ class GemmaDecoderLayer(nn.Module):
         self.input_layernorm = GemmaRMSNorm(config.hidden_size, eps = config.rms_norm_eps)
         self.post_attention_layernorm = GemmaRMSNorm(config.hidden_size, eps = config.rms_norm_eps)
         
-        def forward(
-            self,
-            hidden_states: torch.Tensor,
-            attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
-            kv_cache: Optional[KVCache] = None,
-        ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-            residual = hidden_states
-            hidden_states = self.input_layernorm(hidden_states)  
-            hideen_states, _ = self.self_attn(
-                hidden_states = hidden_states,
-                attention_mask = attention_mask,
-                position_ids = position_ids,
-                kv_cache = kv_cache,
-            )
-            hidden_states = residual + hideen_states
-            residual = hidden_states
-            hidden_states = self.post_attention_layernorm(hidden_states)
-            hidden_states = self.mlp(hidden_states)
-            hidden_states = residual + hidden_states
-            
-            return hidden_states
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        kv_cache: Optional[KVCache] = None,
+    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+        residual = hidden_states
+        hidden_states = self.input_layernorm(hidden_states)  
+        hidden_states, _ = self.self_attn(
+            hidden_states = hidden_states,
+            attention_mask = attention_mask,
+            position_ids = position_ids,
+            kv_cache = kv_cache,
+        )
+        hidden_states = residual + hidden_states
+        residual = hidden_states
+        hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.mlp(hidden_states)
+        hidden_states = residual + hidden_states
+        
+        return hidden_states
         
         
         
@@ -285,7 +285,7 @@ class GemmaModel(nn.Module):
         kv_cache: Optional[KVCache] = None,
     ) -> torch.FloatTensor:
         hidden_states = inputs_embeds
-        normalizer = torch.Tensor(self.config.hidden_size ** 0.5, dtype = hidden_states.dtype)
+        normalizer = torch.tensor(self.config.hidden_size ** 0.5, dtype = hidden_states.dtype)
         hidden_states = hidden_states * normalizer
         
         for decoder_layer in self.layers:
@@ -308,6 +308,7 @@ class GemmaLLM(nn.Module):
         self.config = config
         self.model = GemmaModel(config)
         self.vocab_size = config.vocab_size
+        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         
         
     def get_input_embeddings(self):
@@ -318,7 +319,7 @@ class GemmaLLM(nn.Module):
         self.lm_head.weight = self.model.embed_tokens.weight
 
 
-    def forard(
+    def forward(
         self,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,

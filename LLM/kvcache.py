@@ -1,7 +1,5 @@
 import torch
-from torch import nn
-from typing import Optional, Tuple
-import math
+from typing import Optional, Tuple, List
 
 
 class KVCache():
@@ -20,7 +18,7 @@ class KVCache():
         if len(self.key_cache) <= layer_idx:
             # stiamo creando la KVCache di quel layer
             self.key_cache.append(key_states)
-            self.value_cache.append(self.value_cache)
+            self.value_cache.append(value_states)
         else:
             # concateniamo quello che abbiamo col nuovo token arriva, lungo la dimensione della sequence lenght
             self.key_cache[layer_idx] = torch.cat([self.key_cache[layer_idx], key_states], dim = -2)

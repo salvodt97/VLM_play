@@ -116,7 +116,7 @@ class SiglipAttention(nn.Module):
             raise ValueError(f"Attention output should be of shape {(batch_size, self.num_heads, seq_len, self.head_dim)}, but got {attention_output.size()}")
         # Traspongo all'indietro
         # [batch_size, num_heads, num_patches, head_dim] -> [batsh_size, num_patches, num_heads, head_dim]
-        attention_output = attention_output.transpose(1, 2).contigous()
+        attention_output = attention_output.transpose(1, 2).contiguous()
         attention_output = attention_output.reshape(batch_size, seq_len, self.embed_dim)  # [batch_size, num_patches, embed_dim]
         
         attention_output = self.out_proj(attention_output)  # proiezione finale per ottenere l'output della self attention

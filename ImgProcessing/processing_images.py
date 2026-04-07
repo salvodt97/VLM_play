@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from generic_functions import process_image
+from ImgProcessing.generic_functions import process_image
 
 # Valori di huggingface per la normalizzazione delle immagini, usati anche in CLIP
 IMAGE_STANDARD_MEAN = [0.5, 0.5, 0.5]
@@ -28,7 +28,7 @@ class ImageProcessor:
         self.image_size = image_size
         
         # Gemma Tokenizer
-        tokens_to_add = {"additional_special_tokens:" [self.IMAGE_TOKEN]}
+        tokens_to_add = {"additional_special_tokens": [self.IMAGE_TOKEN]}
         tokenizer.add_special_tokens(tokens_to_add)
         ############# EXTRA SATNDARD TOKENS NOT USEFUL ######################
         EXTRA_TOKENS = [f"<loc{i:04d}>" for i in range(1024)]   # Tokens for object detection (bounding boxes) 
@@ -72,6 +72,6 @@ class ImageProcessor:
         # non sono veri e propri embedding, ma input_id e attention:mask
         inputs = self.tokenizer(input_string, return_tensors="pt", padding=padding, truncation=truncation)
         
-        return_data = {pixel_values: pixel_values, **inputs}
+        return_data = {"pixel_values": pixel_values, **inputs}
         
         return return_data
