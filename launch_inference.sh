@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Per captioning interattivo conviene usare un checkpoint "mix", ad esempio:
-# MODEL_PATH="HuggingFaceModel/paligemma-3b-mix-224"
-MODEL_PATH="HuggingFaceModel/paligemma-3b-pt-224"
-PROMPT="caption en "
-IMAGE_FILE_PATH="test_images/image2.jpg"
+MODEL_PATH="HuggingFaceModel/paligemma-3b-mix-224"
+# MODEL_PATH="HuggingFaceModel/paligemma-3b-pt-224"
+PROMPT="Describe the image. "
+IMAGE_FILE_PATH="test_images/img3.jpg"
 MAX_TOKENS_TO_GENERATE=100
 TEMPERATURE=0.8
 TOP_P=0.9

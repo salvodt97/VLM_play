@@ -33,7 +33,7 @@ class SiglipVisionConfig:
 
 
 class SiglipVisionEmbeddings(nn.Module):
-    # prende l'immagine, la diviode in patch, la flattenizza e ci aggiunge i positional encoding
+    # prende l'immagine, la divide in patch, la flattenizza e ci aggiunge i positional encoding
     def __init__(self, config: SiglipVisionConfig):
         super().__init__()
         self.config = config
@@ -41,7 +41,7 @@ class SiglipVisionEmbeddings(nn.Module):
         self.image_size = config.image_size
         self.patch_size = config.patch_size     # patch di 16x16 pixel
         
-        # estrazione di feature patch per patch senza overlpping
+        # estrazione di feature patch per patch senza overlapping
         self.patch_embedding = nn.Conv2d(
             in_channels=config.num_channels,
             out_channels=self.embed_dim,

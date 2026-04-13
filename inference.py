@@ -1,4 +1,5 @@
 from PIL import Image
+import gc
 import torch
 import fire
 
@@ -14,12 +15,24 @@ def move_inputs_to_device(model_inputs: dict, device: str):
 
 
 def get_model_inputs(processor: ImageProcessor, prompt: str, image_file_path: str, device: str):
-    image = Image.open(image_file_path)
-    images = [image]
+    with Image.open(image_file_path) as image:
+        images = [image.copy()]
     prompts = [prompt]
     model_inputs = processor(text=prompts, images=images)
     model_inputs = move_inputs_to_device(model_inputs, device)
     return model_inputs
+
+
+def cleanup_torch_objects(device: str, *objects):
+    for obj in objects:
+        del obj
+
+    gc.collect()
+
+    if device == "cuda" and torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
 
 
 def test_inference(
@@ -126,18 +139,21 @@ def main(
     processor = ImageProcessor(tokenizer, num_image_tokens, image_size)
 
     print("Running inference")
-    with torch.no_grad():
-        test_inference(
-            model,
-            processor,
-            device,
-            prompt,
-            image_file_path,
-            max_tokens_to_generate,
-            temperature,
-            top_p,
-            do_sample,
-        )
+    try:
+        with torch.inference_mode():
+            test_inference(
+                model,
+                processor,
+                device,
+                prompt,
+                image_file_path,
+                max_tokens_to_generate,
+                temperature,
+                top_p,
+                do_sample,
+            )
+    finally:
+        cleanup_torch_objects(device, processor, tokenizer, model)
 
 
 if __name__ == "__main__":
