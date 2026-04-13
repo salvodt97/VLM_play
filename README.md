@@ -29,6 +29,7 @@ It is a good fit if you want to:
 - Image preprocessing pipeline for PaliGemma-style inputs
 - Greedy decoding and top-p sampling
 - KV cache support for autoregressive generation
+- Explicit CUDA cleanup at the end of inference runs
 - Lightweight shell entrypoint for quick experiments
 
 ## Project Layout
@@ -78,13 +79,21 @@ Run the default launcher:
 bash launch_inference.sh
 ```
 
+The current launcher is configured for a local `mix` checkpoint with a free-form captioning prompt:
+
+```bash
+MODEL_PATH="HuggingFaceModel/paligemma-3b-mix-224"
+PROMPT="Describe the image. "
+ONLY_CPU="False"
+```
+
 Or call inference directly:
 
 ```bash
 python3 inference.py \
-  --model_path HuggingFaceModel/paligemma-3b-pt-224 \
-  --prompt "caption en" \
-  --image_file_path test_images/image2.jpg \
+  --model_path HuggingFaceModel/paligemma-3b-mix-224 \
+  --prompt "Describe the image. " \
+  --image_file_path test_images/img3.jpg \
   --max_tokens_to_generate 100 \
   --temperature 0.8 \
   --top_p 0.9 \
@@ -93,6 +102,8 @@ python3 inference.py \
 ```
 
 The script automatically selects `cuda`, `mps`, or `cpu`, depending on what is available.
+
+At the end of a run, the inference script now releases temporary Torch objects and clears the CUDA cache. This helps when you run the script repeatedly, but it does not replace killing stale Python processes if GPU memory is still occupied.
 
 ## Prompting Tips
 
@@ -167,12 +178,13 @@ If the model generates text that looks broken, repetitive, or pseudo-random, the
 At the moment, the repository is able to:
 
 - load the local `paligemma-3b-pt-224` checkpoint
+- load the local `paligemma-3b-mix-224` checkpoint
 - run image-plus-text inference end to end
-- produce coherent outputs with prompts such as `caption en`
+- produce coherent outputs with task prompts such as `caption en`
+- produce coherent outputs with freer prompts such as `Describe the image.`
 
 ## Next Improvements
 
-- stronger support for `mix` checkpoints
 - explicit validation for missing Git LFS assets
 - batch inference beyond the current `1 image + 1 prompt` flow
 - cleaner separation between input prompt and generated completion
